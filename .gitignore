@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Virtual environment directories
+venv/
+env/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.DS_Store
+
+# Output files
+*.csv
+*.json
+*.html
+
+# Test and temporary directories
+temp_*/
+test data/
+temp_scraper_output/
+scraped_app_data/
+
+# Analysis results
+app_analysis_results.csv
+temp_analysis_results.csv
+temp_evaluator_overwrite_test.csv
+test_analysis_results.csv
+
+# Proxies
+good_proxies.txt
+

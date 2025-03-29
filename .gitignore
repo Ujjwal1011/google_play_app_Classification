@@ -7,8 +7,7 @@ __pycache__/
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Environment variables
-.env
+
 
 # Virtual environment directories
 venv/
@@ -30,7 +29,6 @@ env/
 
 # Test and temporary directories
 temp_*/
-test data/
 temp_scraper_output/
 scraped_app_data/
 

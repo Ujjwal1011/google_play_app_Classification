@@ -24,7 +24,6 @@ env/
 
 # Output files
 *.csv
-*.json
 *.html
 
 # Test and temporary directories

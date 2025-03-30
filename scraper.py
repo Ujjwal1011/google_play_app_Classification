@@ -8,16 +8,21 @@ import copy
 import subprocess
 from google_play_scraper import app, search, exceptions
 import requests.exceptions
+from google import genai
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # --- Default Scraper Configuration ---
 SCRAPER_CONFIG = {
     'PROXY_FILE': 'good_proxies.txt',
     'OUTPUT_DIR': 'scraped_app_data', # Directory for raw JSON outputs
-    'NUM_APPS_PER_CATEGORY': 200,
-    'SEARCH_HITS_BUFFER': 100,
+    'NUM_APPS_PER_CATEGORY': 200, #Maximum number of apps to scrape per category is 200
+    'SEARCH_HITS_BUFFER': 5, # Total app fetch will be 200 * this buffer 
     'MAX_RETRIES_PER_OPERATION': 5,
-    'INITIAL_BACKOFF_SECONDS': 10,
-    'MAX_WORKERS_DETAILS': 18,
+    'INITIAL_BACKOFF_SECONDS': 5,
+    'MAX_WORKERS_DETAILS': 20,
     'DELAY_BETWEEN_CATEGORIES': (10, 20),
     'DELAY_WITHIN_RETRY': (2, 5),
     'LANG': 'en',
@@ -140,6 +145,8 @@ def search_apps_with_retry(search_term, num_apps_target, search_hits, config):
             print(f"  [RETRY?] Unexpected Error searching '{search_term}' (Proxy: {proxy_url_used}, Attempt: {attempt + 1}): {e}")
 
         if attempt < max_retries - 1:
+            # Remove the proxy that failed to fetch details
+            proxy_list.remove(current_proxy_ip_port)
             wait_time = (initial_backoff * (2 ** attempt)) + random.uniform(delay_within_retry[0], delay_within_retry[1])
             print(f"          Waiting {wait_time:.2f} seconds before next search attempt...")
             time.sleep(wait_time)
@@ -206,6 +213,8 @@ def get_app_details_with_retry(app_id, config):
             print(f"    [RETRY?] Unexpected Error fetching {app_id} (Proxy: {proxy_url_used}, Attempt: {attempt + 1}): {e}")
 
         if attempt < max_retries - 1:
+            # Remove the proxy that failed to fetch details
+            proxy_list.remove(current_proxy_ip_port)
             wait_time = (initial_backoff * (2 ** attempt)) + random.uniform(delay_within_retry[0], delay_within_retry[1])
             time.sleep(wait_time)
 
@@ -308,7 +317,25 @@ def fetch_apps_from_node(search_queries, num_per_query, total_apps_needed, outpu
     try:
         # Construct the path to your Node.js script (assuming it's in the same directory)
         node_script_path = os.path.join('gplay-scraper/', "index.js")
+#         # prompt = f"Give me a List of related words to {search_queries} Output format : list  the list must contain more then {total_apps_needed/num_per_query} words"
 
+#         prompt=f"""You want to search the {search_queries} app ,Generate a list of words related to "{search_queries}".  The output should be a Python list.  Please include terms similar to words commonly associated with "{search_queries}". The list must contain {total_apps_needed/num_per_query} distinct words.
+
+# Output format: Python list"""
+        
+#         client =genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+#         response = client.models.generate_content(
+#             model="gemini-1.5-flash",
+#             contents=prompt,
+#         )
+#         tempfile = search_queries.copy()
+#         print(response.text)
+#         try:
+#             start_index=response.text.find('[')
+#             end_index=response.text.find(']')
+#             search_queries=list(response.text[start_index:end_index+1])
+#         except Exception as e:
+#             search_queries=tempfile
         command = [
             "node",
             node_script_path,
@@ -322,16 +349,18 @@ def fetch_apps_from_node(search_queries, num_per_query, total_apps_needed, outpu
         print(result.stdout)
         # Print the stdout from the Node.js script (for debugging)
         # print(result.stdout)
-
+        time.sleep(2) # Small delay to ensure the Node.js script has finished writing
         try:
-            lines = result.stdout.strip().split('\n') # Split into lines and remove leading/trailing whitespace
-            json_string = lines[-1] # Take the last line, assuming JSON is at the end
 
+            # lines = result.stdout.strip().split('\n') # Split into lines and remove leading/trailing whitespace
+            # json_string = lines[-1] # Take the last line, assuming JSON is at the end
+            with open(output_file, 'r', encoding='utf-8') as file:
+                data = json.load(file)
             # Attempt to parse the JSON output from the Node.js script
-            return json.loads(json_string)
+            return data
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from Node.js output: {e}")
-            print(f"Raw Node.js output that caused the error: '{json_string}'")
+            print(f"Raw Node.js output that caused the error: '{output_file}'")
             return []  # Return an empty list in case of JSON decode error
 
     except subprocess.CalledProcessError as e:
@@ -385,7 +414,7 @@ def scrape_large_categories(categories_dict, config):
         fetched_apps = fetch_apps_from_node(
             search_queries,
             config['NUM_APPS_PER_CATEGORY'],
-            config['NUM_APPS_PER_CATEGORY'] + config['SEARCH_HITS_BUFFER'],
+            config['NUM_APPS_PER_CATEGORY'] * config['SEARCH_HITS_BUFFER'],
             category_filename
         )
 

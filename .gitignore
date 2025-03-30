@@ -40,6 +40,8 @@ test_analysis_results.csv
 
 # Proxies
 good_proxies.txt
+proxies.txt
+finding_good_proxies.ipynb
 
 
 # Node Modules

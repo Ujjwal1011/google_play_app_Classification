@@ -5,10 +5,14 @@ async function fetchApps(searchQueries, numPerQuery, totalAppsNeeded, outputFile
     let allApps = new Map();
     let fetchedCount = 0;
 
+    // Await the result of gplay.suggest
+    searchQueries = await gplay.suggest({ term: searchQueries[0] });
+    console.log();
+    console.log("Search queries:", searchQueries);
     for (const query of searchQueries) {
         if (fetchedCount >= totalAppsNeeded) break;
         try {
-            const apps = await gplay.search({ term: query, num: numPerQuery });
+            const apps = await gplay.search({ term: query, num: numPerQuery ,country:"in" });
             for (const app of apps) {
                 if (!allApps.has(app.appId) && fetchedCount < totalAppsNeeded) {
                     allApps.set(app.appId, app);
@@ -32,8 +36,7 @@ async function fetchApps(searchQueries, numPerQuery, totalAppsNeeded, outputFile
         }
     }
 
-    // IMPORTANT: Output the JSON data to stdout - this is captured by Python
-    console.log(JSON.stringify(data));
+
 }
 
 // Get command-line arguments

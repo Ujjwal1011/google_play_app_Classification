@@ -30,6 +30,7 @@ env/
 temp_*/
 temp_scraper_output/
 scraped_app_data/
+test.ipynb
 
 # Analysis results
 app_analysis_results.csv
@@ -40,3 +41,6 @@ test_analysis_results.csv
 # Proxies
 good_proxies.txt
 
+
+# Node Modules
+gplay-scraper/node_modules

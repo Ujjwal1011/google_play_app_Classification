@@ -5,6 +5,7 @@ import datetime
 import os
 import concurrent.futures
 import copy
+import subprocess
 from google_play_scraper import app, search, exceptions
 import requests.exceptions
 
@@ -13,14 +14,14 @@ SCRAPER_CONFIG = {
     'PROXY_FILE': 'good_proxies.txt',
     'OUTPUT_DIR': 'scraped_app_data', # Directory for raw JSON outputs
     'NUM_APPS_PER_CATEGORY': 200,
-    'SEARCH_HITS_BUFFER': 30,
+    'SEARCH_HITS_BUFFER': 100,
     'MAX_RETRIES_PER_OPERATION': 5,
-    'INITIAL_BACKOFF_SECONDS': 6,
+    'INITIAL_BACKOFF_SECONDS': 10,
     'MAX_WORKERS_DETAILS': 18,
     'DELAY_BETWEEN_CATEGORIES': (10, 20),
     'DELAY_WITHIN_RETRY': (2, 5),
     'LANG': 'en',
-    'COUNTRY': 'us',
+    'COUNTRY': '',
     'PROXY_LIST': [] # Loaded dynamically
 }
 
@@ -261,6 +262,161 @@ def save_app_details(data, filename):
         print(f"  Error saving details to file '{filename}': {e}")
         return False
 
+# def fetch_apps_from_node(search_queries, num_per_query, total_apps_needed, output_file):
+#     """
+#     Calls the Node.js script to fetch apps and returns the result.
+
+#     Args:
+#         search_queries (list): List of search terms.
+#         num_per_query (int): Number of apps per query.
+#         total_apps_needed (int): Total number of apps needed.
+#         output_file (str): Path to save the output JSON file.
+
+#     Returns:
+#         list: List of fetched app details.
+#     """
+#     try:
+#         command = [
+#             "node",
+#             "gplay-scraper/index.js",
+#             json.dumps(search_queries),
+#             str(num_per_query),
+#             str(total_apps_needed),
+#             output_file
+#         ]
+#         result = subprocess.run(command, capture_output=True, text=True, check=True)
+#         print(result.stdout)
+#         return json.loads(result.stdout)
+#     except subprocess.CalledProcessError as e:
+#         print(f"Error calling Node.js script: {e.stderr}")
+#         return []
+
+
+def fetch_apps_from_node(search_queries, num_per_query, total_apps_needed, output_file):
+    """
+    Calls the custom Node.js script to fetch apps and returns the result.
+
+    Args:
+        search_queries (list): List of search terms.
+        num_per_query (int): Number of apps per query.
+        total_apps_needed (int): Total number of apps needed.
+        output_file (str): Path to save the output JSON file (passed as an argument to Node).
+
+    Returns:
+        list: List of fetched app details.
+    """
+    try:
+        # Construct the path to your Node.js script (assuming it's in the same directory)
+        node_script_path = os.path.join('gplay-scraper/', "index.js")
+
+        command = [
+            "node",
+            node_script_path,
+            json.dumps(search_queries),  # Pass search queries as JSON string
+            str(num_per_query),
+            str(total_apps_needed),
+            output_file
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        print("Node.js script stdout:")
+        print(result.stdout)
+        # Print the stdout from the Node.js script (for debugging)
+        # print(result.stdout)
+
+        try:
+            lines = result.stdout.strip().split('\n') # Split into lines and remove leading/trailing whitespace
+            json_string = lines[-1] # Take the last line, assuming JSON is at the end
+
+            # Attempt to parse the JSON output from the Node.js script
+            return json.loads(json_string)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from Node.js output: {e}")
+            print(f"Raw Node.js output that caused the error: '{json_string}'")
+            return []  # Return an empty list in case of JSON decode error
+
+    except subprocess.CalledProcessError as e:
+        # Handle errors from the subprocess (Node.js script execution failed)
+        print(f"Error calling Node.js script: {e.stderr}")
+        return []  # Return an empty list if Node.js script fails
+
+    except FileNotFoundError:
+        # Handle case where Node.js script file is not found
+        node_script_path_error = os.path.join(os.path.dirname(__file__), "fetch_from_gplay.js") # Reconstruct path for error msg
+        print(f"Error: Node.js script '{node_script_path_error}' not found. Make sure 'fetch_from_gplay.js' is in the same directory as this Python script.")
+        return []
+
+    except Exception as e:
+        # Catch any other unexpected errors
+        print(f"An unexpected error occurred: {e}")
+        return []
+    
+
+def scrape_large_categories(categories_dict, config):
+    """
+    Scrapes categories with more than 200 apps using the Node.js fetch function.
+
+    Args:
+        categories_dict (dict): Dictionary mapping category_id -> search_term.
+        config (dict): The scraper configuration dictionary.
+
+    Returns:
+        list: A list of full paths to the JSON files created.
+    """
+    output_dir = config['OUTPUT_DIR']
+    if not ensure_output_directory(output_dir):
+        print("Exiting scraper due to directory creation error.")
+        return []
+
+    created_files = []
+
+    for category_id, search_term in categories_dict.items():
+        safe_filename_base = category_id.replace('/', '_').replace('&', 'and').replace(' ', '_')
+        category_filename = os.path.join(output_dir, f"{safe_filename_base}_details.json")
+
+        print(f"\nScraping large category: ID '{category_id}', Search: '{search_term}'")
+        category_start_time = time.time()
+        if os.path.exists(category_filename):
+            print(f"  Output file '{category_filename}' already exists. Skipping scraping.")
+            created_files.append(category_filename)
+            continue
+        
+        # Use the Node.js fetch function
+        search_queries = [search_term]
+        fetched_apps = fetch_apps_from_node(
+            search_queries,
+            config['NUM_APPS_PER_CATEGORY'],
+            config['NUM_APPS_PER_CATEGORY'] + config['SEARCH_HITS_BUFFER'],
+            category_filename
+        )
+
+        # Extract only app IDs from fetched apps
+        app_ids_found = [app['appId'] for app in fetched_apps if 'appId' in app]
+
+        # 2. Fetch App Details
+        if app_ids_found:
+            fetched_app_details = fetch_multiple_app_details_parallel(app_ids_found, config)
+
+            # 3. Save Results
+            if fetched_app_details:
+                if save_app_details(fetched_app_details, category_filename):
+                    created_files.append(category_filename)  # Add newly created file
+            else:
+                print(f"  No app details successfully fetched for search term '{search_term}', no file saved.")
+        else:
+            print(f"  Skipping detail fetching as no app IDs were retrieved via search.")
+
+        category_end_time = time.time()
+        print(f"Category '{category_id}' scraping took {category_end_time - category_start_time:.2f} seconds.")
+
+        # 4. Delay Between Categories
+        if len(created_files) < len(categories_dict):
+            delay = random.uniform(config['DELAY_BETWEEN_CATEGORIES'][0], config['DELAY_BETWEEN_CATEGORIES'][1])
+            print(f"\n--- Waiting for {delay:.2f} seconds before next category ---")
+            time.sleep(delay)
+
+    print("\n" + "="*50); print("--- Scraping Complete ---"); print("="*50)
+    return created_files  # Return list of files generated or found
+
 # === Main Scraper Orchestration Function ===
 
 def scrape_categories(categories_dict, config):
@@ -356,7 +512,4 @@ if __name__ == "__main__":
     test_config['SEARCH_HITS_BUFFER'] = 5
     test_config['DELAY_BETWEEN_CATEGORIES'] = (1, 2)
 
-    generated_files = scrape_categories(test_categories, test_config)
-    print("\nScraping test finished. Generated/found files:")
-    for f in generated_files:
-        print(f"- {f}")
+    generated_files = scrape_categories

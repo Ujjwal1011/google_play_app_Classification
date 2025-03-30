@@ -2,7 +2,7 @@ import time
 import os
 
 # Import necessary functions and configs from other modules
-from scraper import scrape_categories, load_proxies, SCRAPER_CONFIG
+from scraper import scrape_categories, load_proxies, scrape_large_categories,SCRAPER_CONFIG
 from model_analyzer import load_and_analyze_apps, ANALYZER_CONFIG
 from evaluator import evaluate_results
 
@@ -129,4 +129,53 @@ def analyze_and_evaluate_json_files(json_file_list, analyzer_config_override=Non
     end_time = time.time()
     print("\n--- Analyze and Evaluate JSON Files Workflow Finished ---")
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
+
+
+# --- New Function for Full Workflow ---
+def full_workflow(categories_to_scrape=None, scraper_config_override=None, analyzer_config_override=None, evaluation_params_override=None):
+    """
+    Integrates all steps: scraping, analyzing, and evaluating app data into a single function.
+
+    Args:
+        categories_to_scrape (dict, optional): Categories to scrape. Defaults to None.
+        scraper_config_override (dict, optional): Overrides for scraper configuration. Defaults to None.
+        analyzer_config_override (dict, optional): Overrides for analyzer configuration. Defaults to None.
+        evaluation_params_override (dict, optional): Overrides for evaluation parameters. Defaults to None.
+
+    Returns:
+        None
+    """
+    print("\n--- Starting Full Workflow ---")
+
+    # Step 1: Scraping
+    print("\n--- Step 1: Scraping ---")
+    scraper_config = SCRAPER_CONFIG.copy()  # Start with default scraper config
+    if scraper_config_override:  # Apply overrides if provided
+        scraper_config.update(scraper_config_override)
+    scraper_config['PROXY_LIST'] = load_proxies(scraper_config['PROXY_FILE'])  # Load proxies always
+
+    categories = categories_to_scrape if categories_to_scrape else {}
+    scraped_json_files = scrape_large_categories(categories, scraper_config)
+
+    if not scraped_json_files:
+        print("No data scraped. Exiting workflow.")
+        return
+
+    # Step 2: Analyzing
+    print("\n--- Step 2: Analyzing ---")
+    analyzer_config = ANALYZER_CONFIG.copy()
+    if analyzer_config_override:
+        analyzer_config.update(analyzer_config_override)
+
+    load_and_analyze_apps(scraped_json_files, analyzer_config)
+
+    # Step 3: Evaluating
+    print("\n--- Step 3: Evaluating ---")
+    analysis_csv_file = analyzer_config['CSV_FILE']
+    if os.path.exists(analysis_csv_file):
+        evaluate_results(analysis_csv_file, **(evaluation_params_override or {}))
+    else:
+        print(f"Analysis CSV file '{analysis_csv_file}' not found. Skipping evaluation.")
+
+    print("\n--- Full Workflow Completed ---")
 
